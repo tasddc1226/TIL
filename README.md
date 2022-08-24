@@ -5,4 +5,7 @@
 ```
 
 ## Django
-- [bulk_create()](/Django/bulk_create.md)
+
+- QuerySet methods
+    - [bulk_create()](/Django/bulk_create.md)
+    - [iterator()](/Django/iterator.md)
