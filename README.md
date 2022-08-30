@@ -9,3 +9,7 @@
 - QuerySet methods
     - [bulk_create()](/Django/bulk_create.md)
     - [iterator()](/Django/iterator.md)
+
+- Modules
+    - [Celery](/python/celery.md)
+    - 
