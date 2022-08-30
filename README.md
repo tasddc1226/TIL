@@ -13,3 +13,8 @@
 - Modules
     - [Celery](/python/celery.md)
     - 
+
+## FastAPI
+
+- [Pytest](/FastAPI/pytest.md)
+
