@@ -14,6 +14,9 @@
     - [Celery](/python/celery.md)
     - 
 
+## Python
+
+- [decorator](/Python/decorator.md)
 ## FastAPI
 
 - [Pytest](/FastAPI/pytest.md)
