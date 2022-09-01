@@ -6,9 +6,12 @@
 
 ## Django
 
+- [Clean-Code-Principles](Django/clean_code_principles.md)
+  
 - QuerySet methods
     - [bulk_create()](/Django/bulk_create.md)
     - [iterator()](/Django/iterator.md)
+    - [viewsets](Django/viewsets.md)
 
 - Modules
     - [Celery](/python/celery.md)
