@@ -20,6 +20,7 @@
 ## Python
 
 - [decorator](/Python/decorator.md)
+- [static-methods](/Python/static_method.md)
 ## FastAPI
 
 - [Pytest](/FastAPI/pytest.md)
