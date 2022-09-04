@@ -131,3 +131,105 @@ FAILED tests/test_users.py::test_새로운_유저_생성 - pydantic.error_wrappe
 
 - 그 이유로는 혹시나 API와 연결된 DB를 확인해보니.. 테스트코드에 담긴 계정과 비밀번호가 저장되어진 것이다.
 - 따라서, 테스트용 DB를 config 해주지 않았기 때문이다. 해결하기 위해서는 테스트 코드가 실행되어질 때, 테스트 DB를 따로 config 해주거나 아니면 종료 후 만들어진 데이터를 일괄적으로 삭제하는 방법이 존재할 것 같다.
+
+
+## TEST DB config
+
+> 위에서는 나의 local DB를 사용해서 직접 테스트를 진행하였다. 이번에는 test 환경을 새로 구축하여 작성한 api에 대한 테스트 환경을 만들어보자.
+
+### 1. tests/test_config.py 파일 생성
+
+- 로컬 환경에서 사용한 DB를 `override`하여 테스트 DB를 구축하는 방법이다.
+
+```py
+SQLALCHEMY_DATABASE_URL = "sqlite:///tests/blog-fastapi-test.db"
+
+engine = create_engine(SQLALCHEMY_DATABASE_URL, connect_args={"check_same_thread": False})
+TestingSessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=engine)
+```
+
+- 테스트 db의 경로를 설정해주고, DB engine을 생성해준다.
+- 다음으로는 세션을 생성하는데 위에서 만들어준 테스트 환경의 engine과 bind 해주도록 한다.
+
+
+### 2. **session & client** 정의 및 오버라이딩
+
+```py
+@pytest.fixture
+def session():
+    Base.metadata.drop_all(bind=engine)
+    Base.metadata.create_all(bind=engine)
+
+    db = TestingSessionLocal()
+    try:
+        yield db
+    finally:
+        db.close()
+
+
+@pytest.fixture
+def client(session):
+    def override_get_db():
+        try:
+            yield session
+        finally:
+            session.close()
+
+    # app에서 사용하는 DB를 오버라이드하는 부분
+    app.dependency_overrides[Base.get_db] = override_get_db
+
+    yield TestClient(app)
+```
+
+- 그 뒤로, `@pytest.fixture` 데코레이터를 사용해서 `session`과 `client`를 정의해주도록 한다.
+- `client`에서는 오버라이드하는 부분이 포함되어 있다.
+- 위의 과정으로 테스트 환경을 로컬 DB와 분리하여 세팅할 수 있었다.
+
+### 3. 테스트 코드 작성
+
+- 위의 환경이 완성되어졌고, 해당 파일 아래 테스트할 코드들을 작성해서 테스트해도 무방하지만, 관련 있는 모듈들끼리 모아서 테스트를 하는 것이 더 이상적이므로 새로운 파일에 작성했다.
+
+```py
+# tests/test_users.py
+
+import pytest
+from app import schemas
+from tests.test_config import client, session
+
+
+def test_새로운_유저_생성(client):
+    res = client.post("/users/", json={"email": "test@example.com", "password": "test"})
+    new_user = schemas.UserResponse(**res.json())
+
+    assert res.status_code == 201
+    assert new_user.email == "test@example.com"
+```
+
+- 테스트 코드는 위에서 사용한 것과 동일하다. 
+- 여기서 `test_config.py`에서 정의한 `session`과 `client`를 **import** 해주어야 한다.
+- 둘 중 하나라도 해주지 않는다면 아래와 같은 오류가 발생한다.
+
+```bash
+  @pytest.fixture
+  def client(session):
+E       fixture 'session' not found
+>       available fixtures: cache, capfd, capfdbinary, caplog, capsys, capsysbinary, client, doctest_namespace, monkeypatch, pytestconfig, record_property, record_testsuite_property, record_xml_attribute, recwarn, tmp_path, tmp_path_factory, tmpdir, tmpdir_factory
+>       use 'pytest --fixtures [testpath]' for help on them.
+```
+
+- `session`의 fixture를 찾을 수 없다는 오류이므로 테스트를 돌릴 수 없다.
+- 처음에는 client만 사용하기 때문에 `from tests.test_config import client`와 같이 해주었더니 계속해서 찾지 못하는 것이었다.
+- 결국 둘 다 동시에 import 해주어야 아래와 같이 테스트 코드를 테스트 DB를 사용해서 돌릴 수 있다.
+
+```bash
+❯ pytest tests -v                                                                                                ─╯
+=============================================== test session starts ================================================
+platform darwin -- Python 3.9.13, pytest-7.1.2, pluggy-1.0.0 -- /Users/yangsuyoung/dev/fastapi/venv/bin/python3.9
+cachedir: .pytest_cache
+rootdir: /Users/yangsuyoung/dev/fastapi/blog
+collected 1 item                                                                                                   
+
+tests/test_users.py::test_새로운_유저_생성 PASSED                                                            [100%]
+
+================================================ 1 passed in 0.49s =================================================
+```
