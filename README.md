@@ -15,7 +15,7 @@
 
 - Modules
     - [Celery](/python/celery.md)
-    - 
+    - [Locust](/python/locust.md)
 
 ## Python
 
