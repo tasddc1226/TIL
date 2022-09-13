@@ -81,8 +81,8 @@
 select_for_update(nowait=False, skip_locked=False, of=(), no_key=False)
 ```
 
-> - nowait: 기본값은 False. False는 row lock이 잡혀있다면 대기하고 True일 경우 에러 발생
-> - skip_locked: 기본값은 False. True일 경우 조회한 데이터가 lock이 잡혀있다면 이를 무시한다.
-> - of: `select_for_update`는 `select_related`와 같이 사용할 경우 join 한 테이블의 행도 함께 lock을 잡는다. 이때 of를 사용해 lock을 잡을 테이블을 명시할 수 있다.
+- **`nowait`**: 기본값은 False. False는 row lock이 잡혀있다면 대기하고 True일 경우 에러 발생
+- **`skip_locked`**: 기본값은 False. True일 경우 조회한 데이터가 lock이 잡혀있다면 이를 무시한다.
+- **`of`**: `select_for_update`는 `select_related`와 같이 사용할 경우 join 한 테이블의 행도 함께 lock을 잡는다. 이때 of를 사용해 lock을 잡을 테이블을 명시할 수 있다.
 
 
