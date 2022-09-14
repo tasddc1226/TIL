@@ -14,8 +14,8 @@
     - [viewsets](Django/viewsets.md)
 
 - Modules
-    - [Celery](/python/celery.md)
-    - [Locust](/python/locust.md)
+    - [Celery](/Python/celery.md)
+    - [Locust](/Python/locust.md)
 
 ## Python
 
