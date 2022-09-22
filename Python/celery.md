@@ -162,3 +162,296 @@ send_feedback_email_task.apply_async(args=[
 - 위와 같이 `.apply_async`를 사용하면 다양한 실행 옵션(countdown, retry etc.)을 주어 셀러리를 사용할 수 있지만,
 - `.delay()` Celery에게 task message를 가장 빠르게 보낼 수 있는 방법이라고 한다.
 - 그냥 `.delay()`를 사용하자?
+
+<br/>
+
+# 이젠 진짜 사용해보자.
+- [Asynchronous Tasks With Django and Celery](https://realpython.com/asynchronous-tasks-with-django-and-celery/#integrate-celery-with-django) 의 자습서를 보고 실습 부분만 정리
+- 지금까지는 Celery의 이론 내용에 대해서만 파악해보았고, 실제로 비동기 처리를 Django 프로젝트에서 사용해보자
+
+
+## 1. project clone
+- 자습서 내에서 프로젝트를 다운받는 링크에서 메일 주소를 통해서 받을 수 있다.
+- Django 프로젝트 설정하는 방법은 `PASS`
+
+<img width="208" alt="Screen Shot 2022-09-22 at 11 29 59 AM" src="https://user-images.githubusercontent.com/55699007/191645233-660b2876-010c-47f5-9d80-528fd5dd6d5c.png">
+
+- 압축을 풀면 폴더 2개가 있는데 `initial` 폴더에서 작업을 한 결과가 `final`에 들어있는 듯 하다.
+
+- `initial` 앱을 실행하면 아래와 같은 화면이 나온다.
+
+<img width="754" alt="Screen Shot 2022-09-22 at 11 29 02 AM" src="https://user-images.githubusercontent.com/55699007/191645223-264aa4ce-0e0e-4ebb-a415-8a7710f3b603.png">
+
+
+## 2. 코드 살펴보기
+- 우선 첫 화면에서 알 수 있듯이 피드백을 받는 양식이고, 메일 주소와 메시지를 제출하는 앱이다.
+- `initial` 앱의 해당 양식을 채우고 전송을 누르면 빈 화면에 처리중인 로딩 모습만 나오게 된다.
+
+```py
+# feedback/form.py
+
+def send_email(self):
+  """Sends an email when the feedback form has been submitted."""
+  sleep(20)  # Simulate expensive operation that freezes Django
+  send_mail(
+      "Your Feedback",
+      f"\t{self.cleaned_data['message']}\n\nThank you!",
+      "support@example.com",
+      [self.cleaned_data["email"]],
+      fail_silently=False,
+  )
+```
+- 실제 메일을 보내는 기능 내에서 딜레이를 주었기 때문이다. 실제로는 이렇게 사용하진 않지만 실제로 약간의 딜레이가 존재한다.
+- 그렇다면 이제 이 부분을 비동기로 처리하기 위해서 필요한 `broker`와 `celery` 설정을 해보자.
+
+## 3. Celery 설정하기
+- pip 명령을 통해 설치
+
+```bash
+> pip install celery
+```
+
+- 앞서 말했듯이 celery만 설치한다고 해서 바로 동작하지는 않는다. 진짜?
+- 하기의 명령어를 입력해보자.
+
+```bash
+❯ python -m celery -A django_celery worker
+```
+
+- celery는 작업 대기열에 작업을 보내는 프로그램과 통신하기 위해 브로커가 필요하다. 따라서 브로커가 없으면 아래와 같이 계속해서 연결을 시도하는 에러가 출력되어 진다.
+
+```bash
+[2022-09-22 02:39:33,822: ERROR/MainProcess] consumer: Cannot connect to redis://localhost:6379//: Error 61 connecting to localhost:6379. Connection refused..
+Trying again in 2.00 seconds... (1/100)
+```
+
+- 에러를 살펴보면, Celery가 연결 시도하려는 대상은 URL과 유사한 구문임을 알 수 있다. 위에서 설명한 AMQP를 사용하며 Celery가 사용하는 메시징 프로토콜이다.
+- 가장 잘 알려진 메세징 프로토콜은 RabbitMQ이지만, Redis로도 구현이 가능하다.
+
+## 4. Redis 설치하기
+- homebrew가 설치되어있다고 가정하고 하기의 명령 입력
+
+```bash
+> brew install redis
+```
+
+- 설치가 끝나면 다음으로 바로 redis 서버를 실행시켜준다.
+
+```bash
+> redis-server
+```
+
+- 무언가 멋진 로고가 뜨고, Redis가 연결 대기중인 모습인 것 같다.
+
+## 5. python 프로젝트에서 redis를 사용하기 위한 모듈 설치하기
+- 다음으로는 Redis와 연결하기 위한 python 인터페이스를 설치하자.
+
+```bash
+> pip install redis
+```
+
+> 주의 사항
+> - 시스템에 Redis를 설치하고, 가상 환경에 redis-py를 설치해야 Python 프로그램에서 Redis로 작업할 수 있다.
+
+
+## 6. Django 프로젝트에 셀러리 추가하기
+- 마지막으로는 Django App을 메시지 생성자로 작업 대기열에 연결하는 것이다.
+
+### `celery.py` 생성
+
+```bash
+django_celery/
+├── __init__.py
+├── asgi.py
+├── celery.py
+├── settings.py
+├── urls.py
+└── wsgi.py
+```
+
+```py
+# celery.py
+
+import os
+from celery import Celery
+
+os.environ.setdefault("DJANGO_SETTINGS_MODULE", "django_celery.settings")
+
+# Celery 인스턴스 생성
+app = Celery("django_celery")
+
+# Celery 환경변수를 가져오기 위해서 해주는 설정으로 CELERY로 시작해야 한다는 뜻
+app.config_from_object("django.conf:settings", namespace="CELERY")
+
+# django 모든 app 하위 폴더에서 tasks.py 파일을 찾아 task들을 등록
+app.autodiscover_tasks()
+
+```
+
+- 다음으로는 환경 변수를 세팅해주자.
+
+```py
+
+# django_celery/settings.py
+
+# Celery settings
+CELERY_BROKER_URL = "redis://localhost:6379"
+CELERY_RESULT_BACKEND = "redis://localhost:6379"
+
+```
+
+- 위와 같이 설정해주면 Broker와 DB backend를 Redis로 사용한다는 의미이다.
+
+- 마지막으로는 `__init__.py` 파일에 `celery_app을` 등록해주자
+
+```py
+# django_celery/__init__.py
+
+from .celery import app as celery_app
+
+__all__ = ("celery_app",)
+```
+
+- 위의 과정까지 마쳤다면, 이제 `@shared_task` 데코레이터를 사용할 수 있다!
+
+## 7. 서비스들 실행해보자.
+- 아직 비동기 처리할 작업을 등록하기 전에, 열심히 설정해왔던 서비스들을 실행해주자.
+
+  1. 프로듀서: Django App
+  2. 메시지 브로커: Redis Server
+  3. 소비자: Celery App
+
+- 각각 따로 터미널 창을 열어서 실행하자.
+### Django App 개발 서버 실행
+```bash
+> python manage.py runserver
+```
+
+### Redis Server 실행
+```bash
+> redis-server
+```
+
+```
+Opening port: bind: Address already in use
+```
+- 만약 이미 실행되어져 있다면 같은 포트로 실행할 수 없기에 재시작을 하거나 종류 후 실행해주자.
+
+```bash
+> redis-cli shutdown
+```
+
+### Celery App 실행
+```bash
+❯ python -m celery -A django_celery worker
+```
+- 실행할 때에는 `django_celery`와 같이 Celery App 인스턴스가 포함된 모듈의 이름을 제공해야 한다.
+
+
+## 8. 비동기 처리를 위한 리펙터링
+- 이제는 위에서 django 모든 app 하위 폴더에서 tasks.py 파일을 찾아 task들을 등록하는 함수
+`app.autodiscover_tasks()`가 정상 동작하기 위해서 `tasks.py`를 작업해보자.
+
+```bash
+feedback/
+│
+├── migrations/
+│   └── __init__.py
+│
+├── templates/
+│   │
+│   └── feedback/
+│       ├── base.html
+│       ├── feedback.html
+│       └── success.html
+│
+├── __init__.py
+├── admin.py
+├── apps.py
+├── forms.py
+├── models.py
+├── tasks.py
+├── tests.py
+├── urls.py
+└── views.py
+```
+
+### tasks.py
+```py
+from time import sleep
+from django.core.mail import send_mail
+from celery import shared_task
+
+@shared_task()
+def send_feedback_email_task(email_address, message):
+    """Sends an email when the feedback form has been submitted."""
+    sleep(20)  # Simulate expensive operation(s) that freeze Django
+    send_mail(
+        "Your Feedback",
+        f"\t{message}\n\nThank you!",
+        "support@example.com",
+        [email_address],
+        fail_silently=False,
+    )
+```
+- 비동기로 처리할 함수를 `tasks.py`에 등록했으니, 원래 동기적으로 실행하던 부분에서 호출만 하도록 아래와 같이 변경하자.
+
+### forms.py
+```py
+from django import forms
+from feedback.tasks import send_feedback_email_task
+
+class FeedbackForm(forms.Form):
+    email = forms.EmailField(label="Email Address")
+    message = forms.CharField(
+        label="Message", widget=forms.Textarea(attrs={"rows": 5})
+    )
+
+    def send_email(self):
+        send_feedback_email_task.delay(
+            self.cleaned_data["email"], self.cleaned_data["message"]
+        )
+```
+- `tasks.py`에 등록된 함수를 가져오고, `.delay()`를 사용해서 호출해주는 모습이다.
+
+## 9. Celery App 재실행
+
+- 새롭게 `@shared_task`를 등록했기 때문에 이전에 실행해둔 Celery App을 아래의 명령어로 재시작 해주자.
+
+```bash
+❯ python -m celery -A django_celery worker -l info
+```
+
+- `-l info` 옵션을 주면 더 자세한 정보를 알 수 있다.
+- 터미널에 어떤 `task`가 등록되었는지도 출력되어진다.
+
+```bash
+[tasks]
+  . feedback.tasks.send_feedback_email_task
+```
+
+## 10. 마무리 실행 결과 
+- 정말 비동기로 처리되어지는지 Celery App의 터미널을 주목하자.
+- 아까와 같은 시나리오처럼 `email`과 `message`를 입력하고 제출을 하면 바로 결과 `html`을 받을 수 있다.
+- 그리고 Celery App의 터미널을 확인하면 아래와 같다.
+
+```bash
+[2022-09-22 03:18:39,698: INFO/MainProcess] Task feedback.tasks.send_feedback_email_task[786f7992-53ea-4644-91a9-bfbbb3a733f6] received
+[2022-09-22 03:18:59,724: WARNING/ForkPoolWorker-8] Content-Type: text/plain; charset="utf-8"
+MIME-Version: 1.0
+Content-Transfer-Encoding: 7bit
+Subject: Your Feedback
+From: support@example.com
+To: 123@asd.asd
+Date: Thu, 22 Sep 2022 03:18:59 -0000
+Message-ID:
+ <166381673970.31472.12423380710324090900@yangsuyeongs-MacBook-Pro.local>
+
+	123
+
+Thank you!
+[2022-09-22 03:18:59,725: WARNING/ForkPoolWorker-8] -------------------------------------------------------------------------------
+[2022-09-22 03:18:59,729: INFO/ForkPoolWorker-8] Task feedback.tasks.send_feedback_email_task[786f7992-53ea-4644-91a9-bfbbb3a733f6] succeeded in 20.030639417000003s: None
+```
+- `send_feedback_email_task`가 메시지를 수신함과 동시에 ID값이 존재하고, 이후에는 처리 결과에 대한 내용도 출력되어지는 것을 알 수 있다.
+- 실행 시간도 확인할 수 있는 모습이다.
