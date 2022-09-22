@@ -72,3 +72,93 @@
 
 #### Redis 참고
 > 컴퓨터 메모리를 이용한 (in-memory) Cache Server로 `Key / Value`를 이용해 Celery가 처리할 작업을 보낸 후 Cache에서 해당 Key를 제거하는 방식으로 작동한다. **Redis**는 데이터 검색을 위해 DB에 접근하기 전 메모리에서 Cache를 가져다 쓴다는 점에서 속도가 빠른 장점이 있다.
+
+
+## PyCon Korea Celery의 빛과 그림자
+> 정민영님의 파이콘 2015 영상을 보고 정리한 내용.
+
+### 비동기 처리기는 왜 필요한걸까?
+- 비동기 처리기는 동기적으로 수행하지 않아도 되는 일들을 처리해주는 역할을 한다.
+- 결과를 즉시 받을 필요가 없거나, 지연하여 처리해야 되는 일들을 보통 처리한다.
+- 제대로 처리가 되지 않아도 된다는 얘기는 아니기 때문에 별도의 잘 만들어진 처리기가 필요하다.
+
+### 사용하는 이유? (추가)
+- 쉽게 연동 가능
+- 당신이 상상할 수 있는 모든 기능 제공
+- 가장 많이 사용되어 지고 있음.
+
+
+### Broker
+- Celery는 무수히 많은 Broker를 지원하지만, RabbitMQ를 제외한 Redis이하는 일부 기능이 제한되어진다.
+  - 과연 지금도 그럴까,,?
+  - Celery는 원래 RabbitMQ랑 사용하려고 만들어진 친구이다?
+  - Redis를 Broker로 사용한다면 모니터링 기능을 사용할 수 있음.
+  - 가능하면 RabbitMQ를 사용해라..?
+
+
+### AMQP
+> 참고: Celery가 연결을 시도하는 대상에서 URL과 유사한 구문을 볼 수 있습니다. 프로토콜 이름 은 Advanced Message Queuing Protocolamqp 의 약자이며 Celery가 사용하는 메시징 프로토콜입니다. AMQP를 기본적으로 구현하는 가장 잘 알려진 프로젝트는 RabbitMQ이지만 Redis도 프로토콜을 사용하여 통신할 수 있습니다.
+
+- 단순하게 Celery만 설치하는 것으로는 충분하지 않다.
+- 추가로 Broker가 필요하므로 Broker 없이 실행하면 아래와 같은 오류가 발생한다.
+
+```bash
+[2022-09-21 18:04:03,841: ERROR/MainProcess] consumer: Cannot connect to amqp://guest:**@127.0.0.1:5672//: [Errno 61] Connection refused.
+Trying again in 2.00 seconds... (1/100)
+```
+
+
+![](https://img1.daumcdn.net/thumb/R1280x0/?scode=mtistory2&fname=https%3A%2F%2Fblog.kakaocdn.net%2Fdn%2FFaJc6%2FbtqDVu3tKWO%2FImf27X4sWOa4Kkxz8Lp9VK%2Fimg.png)
+
+
+### Celery prefetch의 배신?
+- 우리가 생각하는 prefetch에 대한 일반적인 기대로는 Task들을 그냥 미리 땡겨두는 것이다. 단순하게.
+- 하지만 문서에는 다음과 같이 적혀있다고 한다.
+
+```md
+Prefetch is a term inherited from AMQP that is **often misunderstood** by users.
+The prefetch limit is a limit for the number of tasks (messages) a worker can reserve for itself
+```
+
+[ S ][ S ][ S ][ L ][ S ][ S ][ S ][ S ]
+- 큐 size가 8인 브로커에 메시지가 쌓여있는 모습
+- prefetch의 크기가 4라고 가정해보자.
+
+[ S ][ S ][ S ][ L ]
+- 그러면 워커에는 메시지가 위와 같이 들어가게 된다.
+- S는 수행 시간이 짧은 task이고, L은 수행 시간이 긴 task이다.
+
+[ L ][ S ][ S ][ S ]
+- S가 빠르게 처리된 이후의 워커 상황은 위와 같을 것.
+- L 뒤에 S가 채워진 모습이 우리가 기대하는 prefetch의 모습이다.
+
+
+- 하지만, 실제로는 그렇지 않다! prefetch된 단위 천체의 작업을 소비해야 (ack*) 다음 prefetch가 수행된다.
+- task가 비워지는 대로 다음 task를 broker에서 가져올거라는 일반적인 기대와는 차이가 있다.**(often misunderstood)**
+
+
+### 주의 사항
+- Task를 한 큐에 담지 마세요.
+  - prefetch의 특성상 평균 수행 시간이 비슷한 것들이 같은 큐에 있는 것이 성능상 훨씬 유리하다.
+  - Task의 절대적인 수 자체도 중요한 요소이다.
+  - 처리의 중요도 / 시급도(priority)에 따른 분류도 중요하다.
+
+### 정말 간단한게 성능에 큰 영향을 주는 **또 다른**요소
+- 셀러리 옵션에는 `ignore_result`라는 옵션이 있다.
+  - 이는 default로 **꺼져** 있다.
+  - Celery는 기본적으로 수행 결과(return)를 `저장`해야 작업이 끝난다.
+  - 하지만 대부분 Task내에서 직접 결과를 다른 곳에 저장하지, `return` 자체를 쓰는 경우는 드물다!
+  - 결과를 저장하는 비용이 적지 않기 때문에 이 옵션을 켜두기만 해도 성능이 좋아진다?
+  - 하지만 해당 옵션은 `.apply_async()`에 해당한다.
+
+- 자습서 상의 내용에서 발췌를 해보면
+
+```py
+send_feedback_email_task.apply_async(args=[
+  self.cleaned_data["email"], self.cleaned_data["messages"]
+  ]
+)
+```
+- 위와 같이 `.apply_async`를 사용하면 다양한 실행 옵션(countdown, retry etc.)을 주어 셀러리를 사용할 수 있지만,
+- `.delay()` Celery에게 task message를 가장 빠르게 보낼 수 있는 방법이라고 한다.
+- 그냥 `.delay()`를 사용하자?
