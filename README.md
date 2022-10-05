@@ -22,6 +22,7 @@
 
 - [decorator](/Python/decorator.md)
 - [static-methods](/Python/static_method.md)
+- [tenacity](/Python/tenacity.md)
 ## FastAPI
 
 - [Pytest](/FastAPI/pytest.md)
