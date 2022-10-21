@@ -18,6 +18,7 @@
     - [Locust](/Python/locust.md)
     - [Mypy](/Python/mypy.md)
     - [tenacity](/Python/tenacity.md)
+    - [Zappa](/Python/zappa.md)
 
 ## Python
 
