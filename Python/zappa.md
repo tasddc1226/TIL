@@ -125,9 +125,12 @@ $(venv) > zappa undeploy dev
 
 ### 5. VPC 구성
 
-#### VPC vs VPN (추가 내용 정리 필요)
+- lambda는 기본적으로 http 호출이 불가능하여 외부 환경과 격리되어 있다.
+- 작동시키기 위해서는 트리거(Event Bridge)를 달아 실행할 수 있다.
 
-- VPC
+#### VPC vs VPN
+
+- VPC (Virtual Private Cloud)
 
   - AWS Cloud 내부에서 구성되는 사용자의 AWS 계정 전용 가상 네트워크
   - 이곳을 통해서 AWS 리소스를 시작할 수 있음.
@@ -137,9 +140,11 @@ $(venv) > zappa undeploy dev
   - 하나의 VPC는 하나의 Region 내에서만 생성 가능하지만 두 개 이상의 Region에 걸치는 것은 불가능하다.
   - **하지만**, 하나의 VPC는 여러개의 AZ(가용 영역, Availability Zone)에 걸쳐 생성될 수 있다.
 
-- VPN
+- VPN (Virtual Private Network)
 
-  - 내용 추가 예정
+  - 인터넷을 통해 디바이스 간에 사설 네트워크 연결을 생성한다.
+  - Public 네트워크를 통해 데이터를 안전하게 익명으로 전송하는데 사용한다.
+  - 사용자 IP address를 마스킹하고 데이터를 암호화하여 수신 권한이 없는 사람이 읽을 수 없도록 한다.
 
 ### 6. lambda Security Group 만들기
 
